@@ -1623,7 +1623,7 @@ function Sales({ db, mutate, notify }) {
     }
   };
 
-  const isMobilePlatform = typeof window !== "undefined" && window.toplistNative?.platform === "android";
+  const isMobilePlatform = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
 
   const shareToWhatsApp = (doc) => {
     const customer = db.customers.find((c) => c.id === doc.customer_id);
@@ -1644,8 +1644,8 @@ function Sales({ db, mutate, notify }) {
     }
     const text = parts.filter(Boolean).join("\n");
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    if (window.toplistNative && typeof window.toplistNative.openExternal === "function") {
-      window.toplistNative.openExternal(url);
+    if (window.zeemaxNative && typeof window.zeemaxNative.openExternal === "function") {
+      window.zeemaxNative.openExternal(url);
     } else {
       window.open(url, "_blank");
     }
@@ -1661,7 +1661,7 @@ function Sales({ db, mutate, notify }) {
   const downloadOrSharePDF = async (doc) => {
     const node = document.querySelector(".print-doc");
     if (!node) return;
-    if (isMobilePlatform && typeof window.toplistNative?.sharePDF !== "function") {
+    if (isMobilePlatform && typeof window.zeemaxNative?.sharePDF !== "function") {
       notify("Share as PDF isn't available yet on this build — the app needs updating with the latest native bridge.", "error");
       return;
     }
@@ -1672,7 +1672,7 @@ function Sales({ db, mutate, notify }) {
       const filename = `${doc.type}-${safeNumber}.pdf`;
       if (isMobilePlatform) {
         const base64 = stripDataUriPrefix(pdf.output("datauristring"));
-        await window.toplistNative.sharePDF(base64, filename);
+        await window.zeemaxNative.sharePDF(base64, filename);
       } else {
         pdf.save(filename);
       }
@@ -1905,7 +1905,7 @@ function Settings({ db, mutate, notify }) {
   const logoRef = useRef(null);
   const signatureRef = useRef(null);
   const [backupBusy, setBackupBusy] = useState(false);
-  const isDesktop = typeof window !== "undefined" && !!window.toplistNative && typeof window.toplistNative.exportBackup === "function";
+  const isDesktop = typeof window !== "undefined" && !!window.zeemaxNative && typeof window.zeemaxNative.exportBackup === "function";
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   const save = () => {
@@ -1943,7 +1943,7 @@ function Settings({ db, mutate, notify }) {
   const doExport = async () => {
     setBackupBusy(true);
     try {
-      const result = await window.toplistNative.exportBackup();
+      const result = await window.zeemaxNative.exportBackup();
       if (result.canceled) { setBackupBusy(false); return; }
       notify(`Backup saved to ${result.filePath}`);
     } catch (e) {
@@ -1956,7 +1956,7 @@ function Settings({ db, mutate, notify }) {
     if (!confirm("This will replace your current data with the contents of the backup file you choose. Your current data is automatically saved as a safety copy first, just in case. Continue?")) return;
     setBackupBusy(true);
     try {
-      const result = await window.toplistNative.importBackup();
+      const result = await window.zeemaxNative.importBackup();
       if (result.canceled) { setBackupBusy(false); return; }
       if (result.error) {
         notify(result.error, "error");
@@ -1974,7 +1974,7 @@ function Settings({ db, mutate, notify }) {
   const doMerge = async () => {
     setBackupBusy(true);
     try {
-      const result = await window.toplistNative.pickMergeFile();
+      const result = await window.zeemaxNative.pickMergeFile();
       if (result.canceled) { setBackupBusy(false); return; }
       if (result.error) {
         notify(result.error, "error");
@@ -2007,7 +2007,7 @@ function Settings({ db, mutate, notify }) {
   };
 
   const doOpenFolder = () => {
-    window.toplistNative?.openDataFolder?.();
+    window.zeemaxNative?.openDataFolder?.();
   };
 
   return (
@@ -2082,7 +2082,7 @@ function Settings({ db, mutate, notify }) {
             <button className="btn btn-primary btn-sm" disabled={backupBusy} onClick={doExport}>Export Backup…</button>
             <button className="btn btn-primary btn-sm" disabled={backupBusy} onClick={doMerge}>Merge Backup…</button>
             <button className="btn btn-ghost btn-sm" disabled={backupBusy} onClick={doImport}>Import Backup…</button>
-            {typeof window.toplistNative?.openDataFolder === "function" && (
+            {typeof window.zeemaxNative?.openDataFolder === "function" && (
               <button className="btn btn-ghost btn-sm" disabled={backupBusy} onClick={doOpenFolder}>Open Data Folder</button>
             )}
           </div>
