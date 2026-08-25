@@ -1,0 +1,11 @@
+{
+  "appId": "com.zeemaxchemical.bizledger",
+  "appName": "Zeemax Biz Ledger",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
