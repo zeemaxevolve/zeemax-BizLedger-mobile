@@ -575,6 +575,10 @@ function GlobalStyle() {
       .cfe .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .cfe .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
       .cfe .form-grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+      .cfe .dashboard-kpi-grid { grid-template-columns: repeat(4, 1fr); }
+      .cfe .dashboard-content-grid { grid-template-columns: 1.3fr 1fr; }
+      .cfe .party-kpi-grid { grid-template-columns: repeat(4, 1fr); }
+      .cfe .reports-aging-grid { grid-template-columns: repeat(5, 1fr); }
       .cfe .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       .cfe .tab-bar-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
       .cfe .tab-bar-scroll::-webkit-scrollbar { display: none; }
@@ -1087,7 +1091,7 @@ function Dashboard({ db, go }) {
           subtitle="This is a blank workspace — add your first customer to start raising Proforma Invoices, Invoices, and Waybills."
           action={<button className="btn btn-primary" onClick={() => go("customers")}>Add your first customer <ArrowRight size={14} /></button>} />
       )}
-      <div className="dashboard-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginTop: hasData ? 0 : 18 }}>
+      <div className="dashboard-kpi-grid" style={{ display: "grid", gap: 14, marginTop: hasData ? 0 : 18 }}>
         {kpis.map((k) => (
           <div key={k.label} className="card kpi">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1099,7 +1103,7 @@ function Dashboard({ db, go }) {
         ))}
       </div>
 
-      <div className="dashboard-content-grid" style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 14, marginTop: 14 }}>
+      <div className="dashboard-content-grid" style={{ display: "grid", gap: 14, marginTop: 14 }}>
         <div className="card" style={{ padding: 18 }}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Recent Documents</div>
           {recentDocs.length === 0 ? (
@@ -1198,7 +1202,7 @@ function PartyDetail({ db, party, onClose }) {
         {party.city_state && <div>{party.city_state}</div>}
       </div>
 
-      <div className="party-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, margin: "14px 0" }}>
+      <div className="party-kpi-grid" style={{ display: "grid", gap: 10, margin: "14px 0" }}>
         <div className="card kpi" style={{ padding: 12 }}>
           <div style={{ fontSize: 11, color: TOKENS.mute, fontWeight: 600 }}>Proforma Invoices</div>
           <div className="val" style={{ fontSize: 18 }}>{docs.filter((d) => d.type === "PROFORMA").length}</div>
@@ -1863,7 +1867,7 @@ function Reports({ db }) {
   return (
     <div>
       <SectionHeader title="Reports" subtitle="Accounts receivable aging — who owes what, and how overdue." />
-      <div className="reports-aging-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 18 }}>
+      <div className="reports-aging-grid" style={{ display: "grid", gap: 10, marginBottom: 18 }}>
         {buckets.map((b, i) => (
           <div key={b} className="card kpi">
             <div style={{ fontSize: 11.5, color: TOKENS.mute, fontWeight: 600 }}>{b}</div>
@@ -2140,7 +2144,19 @@ export default function ZeemaxBizLedger() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await window.storage.get("toplist_db", false);
+        // The storage key was originally "toplist_db" — a leftover from
+        // when this app was forked from TopList BizLedger's codebase. It
+        // never caused any data mixing (each app writes to a completely
+        // separate file on disk), but it was confusing to look at, so it's
+        // renamed to "bizledger_db" here. Existing installations fall back
+        // to reading the old key once, then everything going forward reads
+        // and writes only the new one.
+        let res = await window.storage.get("bizledger_db", false);
+        let migratedKeyName = false;
+        if (!res) {
+          const legacy = await window.storage.get("toplist_db", false);
+          if (legacy) { res = legacy; migratedKeyName = true; }
+        }
         const loaded = res ? JSON.parse(res.value) : emptyDB();
         // One-time fix: earlier builds saved "Powered by BizLedger" or
         // "Powered by Zeemax Biz Ledger" as the default document footer
@@ -2149,7 +2165,7 @@ export default function ZeemaxBizLedger() {
         // deliberately want either string back after this fix. Guarded by
         // a flag so it only ever runs once.
         const STALE_FOOTER_VALUES = ["Powered by BizLedger", "Powered by Zeemax Biz Ledger", "Powered by Toplist Chemicals Limited"];
-        let migrated = false;
+        let migrated = migratedKeyName;
         if (loaded.settings && !loaded.settings._footerVendorMigrationDone) {
           if (STALE_FOOTER_VALUES.includes(loaded.settings.footer_text)) {
             loaded.settings.footer_text = "Powered by Zeemax Digital";
@@ -2181,7 +2197,7 @@ export default function ZeemaxBizLedger() {
   function persistToStorage(data) {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      window.storage.set("toplist_db", JSON.stringify(data), false).catch(() => {});
+      window.storage.set("bizledger_db", JSON.stringify(data), false).catch(() => {});
     }, 250);
   }
 
