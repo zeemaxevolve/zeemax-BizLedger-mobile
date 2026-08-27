@@ -1067,7 +1067,27 @@ function DocumentView({ db, doc, customer }) {
 /* ============================================================
    DASHBOARD
    ============================================================ */
+/** Tracks the window width directly in JS, re-rendering on resize.
+ *  Grid layouts that need to change column count at specific breakpoints
+ *  use this instead of relying purely on CSS media queries — a JS-computed
+ *  inline style always wins unambiguously, with no dependency on stylesheet
+ *  source order or selector specificity working out correctly, which is
+ *  exactly the kind of thing that's easy to get subtly wrong and hard to
+ *  catch without a real browser to check it in. */
+function useWindowWidth() {
+  const [width, setWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  useEffect(() => {
+    function onResize() { setWidth(window.innerWidth); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
+
 function Dashboard({ db, go }) {
+  const width = useWindowWidth();
+  const kpiCols = width <= 480 ? 1 : width <= 900 ? 2 : 4;
+  const contentCols = width <= 900 ? 1 : 2;
   const activeCustomers = db.customers.filter((c) => !c._deleted);
   const activeDocs = db.documents.filter((d) => !d._deleted);
   const invoices = activeDocs.filter((d) => d.type === "INVOICE");
@@ -1091,7 +1111,7 @@ function Dashboard({ db, go }) {
           subtitle="This is a blank workspace — add your first customer to start raising Proforma Invoices, Invoices, and Waybills."
           action={<button className="btn btn-primary" onClick={() => go("customers")}>Add your first customer <ArrowRight size={14} /></button>} />
       )}
-      <div className="dashboard-kpi-grid" style={{ display: "grid", gap: 14, marginTop: hasData ? 0 : 18 }}>
+      <div className="dashboard-kpi-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${kpiCols}, 1fr)`, gap: 14, marginTop: hasData ? 0 : 18 }}>
         {kpis.map((k) => (
           <div key={k.label} className="card kpi">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1103,7 +1123,7 @@ function Dashboard({ db, go }) {
         ))}
       </div>
 
-      <div className="dashboard-content-grid" style={{ display: "grid", gap: 14, marginTop: 14 }}>
+      <div className="dashboard-content-grid" style={{ display: "grid", gridTemplateColumns: contentCols === 1 ? "1fr" : "1.3fr 1fr", gap: 14, marginTop: 14 }}>
         <div className="card" style={{ padding: 18 }}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Recent Documents</div>
           {recentDocs.length === 0 ? (
@@ -1185,6 +1205,8 @@ function PartyForm({ title, initial, onSave, onClose, showCredit }) {
 }
 
 function PartyDetail({ db, party, onClose }) {
+  const width = useWindowWidth();
+  const kpiCols = width <= 480 ? 1 : width <= 900 ? 2 : 4;
   const docs = db.documents
     .filter((d) => !d._deleted && d.customer_id === party.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -1202,7 +1224,7 @@ function PartyDetail({ db, party, onClose }) {
         {party.city_state && <div>{party.city_state}</div>}
       </div>
 
-      <div className="party-kpi-grid" style={{ display: "grid", gap: 10, margin: "14px 0" }}>
+      <div className="party-kpi-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${kpiCols}, 1fr)`, gap: 10, margin: "14px 0" }}>
         <div className="card kpi" style={{ padding: 12 }}>
           <div style={{ fontSize: 11, color: TOKENS.mute, fontWeight: 600 }}>Proforma Invoices</div>
           <div className="val" style={{ fontSize: 18 }}>{docs.filter((d) => d.type === "PROFORMA").length}</div>
@@ -1860,6 +1882,8 @@ function Sales({ db, mutate, notify }) {
    REPORTS
    ============================================================ */
 function Reports({ db }) {
+  const width = useWindowWidth();
+  const agingCols = width <= 480 ? 2 : width <= 900 ? 3 : 5;
   const aging = arAging(db);
   const buckets = ["Current", "1-30 days", "31-60 days", "61-90 days", "90+ days"];
   const bucketTotals = buckets.map((b) => aging.filter((a) => a.bucket === b).reduce((s, a) => s + a.balance, 0));
@@ -1867,7 +1891,7 @@ function Reports({ db }) {
   return (
     <div>
       <SectionHeader title="Reports" subtitle="Accounts receivable aging — who owes what, and how overdue." />
-      <div className="reports-aging-grid" style={{ display: "grid", gap: 10, marginBottom: 18 }}>
+      <div className="reports-aging-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${agingCols}, 1fr)`, gap: 10, marginBottom: 18 }}>
         {buckets.map((b, i) => (
           <div key={b} className="card kpi">
             <div style={{ fontSize: 11.5, color: TOKENS.mute, fontWeight: 600 }}>{b}</div>
