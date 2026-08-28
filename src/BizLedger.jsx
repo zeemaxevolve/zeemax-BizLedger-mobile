@@ -7,7 +7,7 @@ import {
   AlertTriangle, Search, Trash2, Pencil, ArrowRight, CheckCircle2,
   ChevronRight, Beaker, Receipt, ClipboardList, Wallet, TrendingUp,
   TrendingDown, BookOpen, Landmark, PackageCheck, Droplets, ShieldAlert,
-  Phone, Mail, MapPin, Globe, FlaskConical, MessageCircle, Menu, Download,
+  Phone, Mail, MapPin, Globe, FlaskConical, MessageCircle, Menu, Download, Check,
 } from "lucide-react";
 
 /* ============================================================
@@ -1086,7 +1086,7 @@ function useWindowWidth() {
 
 function Dashboard({ db, go }) {
   const width = useWindowWidth();
-  const kpiCols = width <= 480 ? 1 : width <= 900 ? 2 : 4;
+  const kpiCols = width <= 900 ? 1 : 4;
   const contentCols = width <= 900 ? 1 : 2;
   const activeCustomers = db.customers.filter((c) => !c._deleted);
   const activeDocs = db.documents.filter((d) => !d._deleted);
@@ -1333,6 +1333,59 @@ function PartyList({ db, mutate, kind }) {
 /* ============================================================
    SALES — Proforma Invoice → Invoice → Waybill
    ============================================================ */
+/** A number/text input for a narrow table cell (Unit, Qty, Unit Price) that
+ *  pops out and grows wider while focused, so what's being typed is always
+ *  fully visible instead of clipped by the column's narrow width — this
+ *  matters most on mobile, where the on-screen keyboard takes up a big
+ *  chunk of the screen and a cramped 90px-wide cell makes it hard to see
+ *  what was actually typed. A checkmark button appears next to the
+ *  expanded input, and pressing Enter does the same thing, so there's
+ *  always a clear, deliberate way to say "done typing this number" and
+ *  dismiss the keyboard, rather than having to tap elsewhere and hope. */
+function ExpandingCellInput({ type, value, onChange, placeholder, align }) {
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef(null);
+
+  const confirm = () => { if (inputRef.current) inputRef.current.blur(); };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        ref={inputRef}
+        type={type}
+        inputMode={type === "number" ? "decimal" : undefined}
+        value={value}
+        placeholder={placeholder}
+        onChange={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirm(); } }}
+        style={focused ? {
+          position: "absolute", top: -6, left: align === "right" ? "auto" : -6, right: align === "right" ? -6 : "auto",
+          zIndex: 30, minWidth: 130, fontSize: 16, padding: "9px 34px 9px 10px",
+          background: "#fff", boxShadow: "0 4px 16px rgba(14,26,50,0.25)", border: `1.5px solid ${TOKENS.brand}`, borderRadius: 6,
+        } : undefined}
+      />
+      {focused && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()} // keep the input focused until our own blur logic runs
+          onClick={confirm}
+          aria-label="Done"
+          style={{
+            position: "absolute", top: -6, zIndex: 31, height: 34, width: 26,
+            right: align === "right" ? -6 : "auto", left: align === "right" ? "auto" : 92,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: TOKENS.brand, border: "none", borderTopRightRadius: 6, borderBottomRightRadius: 6, cursor: "pointer",
+          }}
+        >
+          <Check size={14} color="#fff" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function LineItemsEditor({ lines, setLines, withRate = true }) {
   const addLine = () => setLines([...lines, { description: "", unit: "", qty: "", rate: "" }]);
   const updateLine = (i, patch) => setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -1358,9 +1411,17 @@ function LineItemsEditor({ lines, setLines, withRate = true }) {
                 <td style={{ minWidth: 180 }}>
                   <input type="text" value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} placeholder="e.g. Sodium Hypochlorite 14%" />
                 </td>
-                <td><input type="text" value={l.unit} onChange={(e) => updateLine(i, { unit: e.target.value })} placeholder="KG" /></td>
-                <td><input type="number" value={l.qty} onChange={(e) => updateLine(i, { qty: e.target.value })} /></td>
-                {withRate && <td><input type="number" value={l.rate} onChange={(e) => updateLine(i, { rate: e.target.value })} /></td>}
+                <td>
+                  <ExpandingCellInput type="text" value={l.unit} placeholder="KG" onChange={(e) => updateLine(i, { unit: e.target.value })} />
+                </td>
+                <td>
+                  <ExpandingCellInput type="number" value={l.qty} onChange={(e) => updateLine(i, { qty: e.target.value })} />
+                </td>
+                {withRate && (
+                  <td>
+                    <ExpandingCellInput type="number" value={l.rate} align="right" onChange={(e) => updateLine(i, { rate: e.target.value })} />
+                  </td>
+                )}
                 {withRate && <td className="mono" style={{ textAlign: "right" }}>{fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0))}</td>}
                 <td><button className="btn btn-ghost btn-sm" onClick={() => removeLine(i)}><X size={13} /></button></td>
               </tr>
@@ -1883,7 +1944,7 @@ function Sales({ db, mutate, notify }) {
    ============================================================ */
 function Reports({ db }) {
   const width = useWindowWidth();
-  const agingCols = width <= 480 ? 2 : width <= 900 ? 3 : 5;
+  const agingCols = width <= 900 ? 1 : 5;
   const aging = arAging(db);
   const buckets = ["Current", "1-30 days", "31-60 days", "61-90 days", "90+ days"];
   const bucketTotals = buckets.map((b) => aging.filter((a) => a.bucket === b).reduce((s, a) => s + a.balance, 0));
