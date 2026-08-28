@@ -27,7 +27,7 @@ const TOKENS = {
   teal: "#0F766E",
   red: "#B4222A",
   paper: "#F6F5F1",
-  card: "#FFFFFF",a
+  card: "#FFFFFF",
   line: "#E4E1D8",
   mute: "#6B7280",
 };
