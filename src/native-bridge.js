@@ -51,11 +51,14 @@ function parseBackupText(text) {
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { error: "That file isn't valid JSON — it doesn't look like a Zeemax ERP backup." };
+    return { error: "That file isn't valid JSON — it doesn't look like a Zeemax Biz Ledger backup." };
   }
-  const raw = parsed.zeemax_db || parsed.chemflow_db;
+  // "bizledger_db" is the current key. "toplist_db" is accepted too, since
+  // backups exported before the rename (or from very early installs) still
+  // use it — same as the app's own load-time migration falls back to it.
+  const raw = parsed.bizledger_db || parsed.toplist_db;
   if (!raw) {
-    return { error: "That file doesn't contain recognizable Zeemax ERP data." };
+    return { error: "That file doesn't contain recognizable Zeemax Biz Ledger data." };
   }
   let data;
   try {
@@ -70,13 +73,13 @@ export function installMobileNativeBridge() {
   window.zeemaxNative = {
     async exportBackup() {
       const store = await readStoreFile();
-      const fileName = `zeemax-erp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const fileName = `zeemax-bizledger-backup-${new Date().toISOString().slice(0, 10)}.json`;
       const json = JSON.stringify(store);
       await Filesystem.writeFile({ path: fileName, directory: Directory.Cache, data: json, encoding: Encoding.UTF8 });
       const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
       await Share.share({
-        title: "Zeemax ERP Backup",
-        text: "Zeemax ERP data backup — merge this into another device from Settings.",
+        title: "Zeemax Biz Ledger Backup",
+        text: "Zeemax Biz Ledger data backup — merge this into another device from Settings.",
         url: uri,
         dialogTitle: "Save or send your backup",
       });
@@ -100,10 +103,10 @@ export function installMobileNativeBridge() {
       try {
         parsed = JSON.parse(picked.text);
       } catch {
-        return { canceled: false, error: "That file isn't valid JSON — it doesn't look like a Zeemax ERP backup." };
+        return { canceled: false, error: "That file isn't valid JSON — it doesn't look like a Zeemax Biz Ledger backup." };
       }
-      if (typeof parsed !== "object" || parsed === null || !("zeemax_db" in parsed || "chemflow_db" in parsed)) {
-        return { canceled: false, error: "That file doesn't contain recognizable Zeemax ERP data." };
+      if (typeof parsed !== "object" || parsed === null || !("bizledger_db" in parsed || "toplist_db" in parsed)) {
+        return { canceled: false, error: "That file doesn't contain recognizable Zeemax Biz Ledger data." };
       }
       // Safety copy of current data before overwriting, same principle as desktop
       try {
@@ -125,7 +128,7 @@ export function installMobileNativeBridge() {
       const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
       await Share.share({
         title: fileName,
-        text: `${fileName.replace(/\.pdf$/i, "")} — from Zeemax ERP`,
+        text: `${fileName.replace(/\.pdf$/i, "")} — from Zeemax Biz Ledger`,
         url: uri,
         dialogTitle: "Share this document",
       });
