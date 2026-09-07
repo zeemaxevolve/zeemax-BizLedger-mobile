@@ -1219,9 +1219,92 @@ function PartyForm({ title, initial, onSave, onClose, showCredit }) {
   );
 }
 
-function PartyDetail({ db, party, onClose }) {
+/** The document viewer modal (Print / Download PDF / Share via WhatsApp,
+ *  plus the printed document itself) — pulled out as its own component so
+ *  it can be opened from anywhere a document is listed, not just the Sales
+ *  Documents page. Customer Transaction History uses this same component,
+ *  so a document looks and behaves identically wherever it's opened from. */
+function DocumentViewerModal({ db, doc, onClose, notify }) {
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const isMobilePlatform = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
+
+  const shareToWhatsApp = () => {
+    const customer = db.customers.find((c) => c.id === doc.customer_id);
+    const parts = [
+      `*${DOC_LABELS[doc.type] || doc.type} - ${doc.number}*`,
+      db.settings.company_name ? `From: ${db.settings.company_name}` : null,
+      customer ? `To: ${customer.name}` : null,
+      doc.date ? `Date: ${fmtDate(doc.date)}` : null,
+    ];
+    if (doc.type === "RECEIPT") {
+      parts.push(`Amount Received: NGN ${fmtMoney(doc.amount)}`);
+      if (doc.payment_method) parts.push(`Payment Method: ${doc.payment_method}`);
+      if (doc.invoice_number) parts.push(`Ref. Invoice: ${doc.invoice_number}`);
+      if (doc.balance_after > 0.01) parts.push(`Balance Remaining: NGN ${fmtMoney(doc.balance_after)}`);
+    } else if (doc.total != null) {
+      parts.push(`Total: NGN ${fmtMoney(doc.total)}`);
+      if (doc.type === "INVOICE") parts.push(`Balance Due: NGN ${fmtMoney(doc.total - (doc.amount_paid || 0))}`);
+    }
+    const text = parts.filter(Boolean).join("\n");
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    if (window.zeemaxNative && typeof window.zeemaxNative.openExternal === "function") {
+      window.zeemaxNative.openExternal(url);
+    } else {
+      window.open(url, "_blank");
+    }
+  };
+
+  const downloadOrSharePDF = async () => {
+    const node = document.querySelector(".print-doc");
+    if (!node) return;
+    if (isMobilePlatform && typeof window.zeemaxNative?.sharePDF !== "function") {
+      notify("Share as PDF isn't available yet on this build — the app needs updating with the latest native bridge.", "error");
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const pdf = await generateDocumentPDF(node);
+      const safeNumber = (doc.number || "document").replace(/[^A-Za-z0-9-_]/g, "_");
+      const filename = `${doc.type}-${safeNumber}.pdf`;
+      if (isMobilePlatform) {
+        const base64 = stripDataUriPrefix(pdf.output("datauristring"));
+        await window.zeemaxNative.sharePDF(base64, filename);
+      } else {
+        pdf.save(filename);
+      }
+    } catch (e) {
+      notify("Could not generate the PDF: " + e.message, "error");
+    }
+    setPdfBusy(false);
+  };
+
+  return (
+    <div className="modal-overlay doc-viewer-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-box doc-viewer-box" style={{ maxWidth: 780, display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
+        <div className="no-print doc-viewer-toolbar" style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${TOKENS.line}`, flexShrink: 0, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {!isMobilePlatform && (
+              <button className="btn btn-primary btn-sm" onClick={() => window.print()}><Printer size={13} /> Print</button>
+            )}
+            <button className="btn btn-primary btn-sm" disabled={pdfBusy} onClick={downloadOrSharePDF}>
+              <Download size={13} /> {pdfBusy ? "Generating…" : isMobilePlatform ? "Share as PDF" : "Download PDF"}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={shareToWhatsApp}><MessageCircle size={13} /> Share via WhatsApp</button>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><X size={14} /></button>
+        </div>
+        <div className="doc-viewer-scroll" style={{ overflowY: "auto", flex: 1 }}>
+          <DocumentView db={db} doc={doc} customer={db.customers.find((c) => c.id === doc.customer_id)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PartyDetail({ db, party, onClose, notify }) {
   const width = useWindowWidth();
   const kpiCols = width <= 480 ? 1 : width <= 900 ? 2 : 4;
+  const [viewDoc, setViewDoc] = useState(null);
   const docs = db.documents
     .filter((d) => !d._deleted && d.customer_id === party.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -1264,7 +1347,7 @@ function PartyDetail({ db, party, onClose }) {
       ) : (
         <div className="table-scroll">
         <table>
-          <thead><tr><th>Type</th><th>Number</th><th>Date</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Type</th><th>Number</th><th>Date</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {docs.map((d) => (
               <tr key={d.id}>
@@ -1273,17 +1356,19 @@ function PartyDetail({ db, party, onClose }) {
                 <td>{fmtDate(d.date)}</td>
                 <td className="mono" style={{ textAlign: "right" }}>{d.total != null ? `NGN ${fmtMoney(d.total)}` : "—"}</td>
                 <td><Badge tone={statusTone(d.status)}>{d.status}</Badge></td>
+                <td><button className="btn btn-ghost btn-sm" onClick={() => setViewDoc(d)}><Printer size={13} /> View</button></td>
               </tr>
             ))}
           </tbody>
         </table>
         </div>
       )}
+      {viewDoc && <DocumentViewerModal db={db} doc={viewDoc} onClose={() => setViewDoc(null)} notify={notify} />}
     </Modal>
   );
 }
 
-function PartyList({ db, mutate, kind }) {
+function PartyList({ db, mutate, kind, notify }) {
   const collection = kind === "customers" ? "customers" : "suppliers";
   const label = kind === "customers" ? "Customer" : "Supplier";
   const [modal, setModal] = useState(null);
@@ -1340,7 +1425,7 @@ function PartyList({ db, mutate, kind }) {
         </div>
       )}
       {modal !== null && <PartyForm title={(modal.id ? "Edit " : "Add ") + label} initial={modal.id ? modal : null} showCredit={kind === "customers"} onClose={() => setModal(null)} onSave={save} />}
-      {historyParty && <PartyDetail db={db} party={historyParty} onClose={() => setHistoryParty(null)} />}
+      {historyParty && <PartyDetail db={db} party={historyParty} onClose={() => setHistoryParty(null)} notify={notify} />}
     </div>
   );
 }
@@ -1695,7 +1780,6 @@ function Sales({ db, mutate, notify }) {
   const [tab, setTab] = useState("PROFORMA");
   const [modal, setModal] = useState(null);
   const [viewDoc, setViewDoc] = useState(null);
-  const [pdfBusy, setPdfBusy] = useState(false);
 
   const docs = db.documents.filter((d) => d.type === tab && !d._deleted).sort((a, b) => (b.number || "").localeCompare(a.number || ""));
   const custName = (id) => db.customers.find((c) => c.id === id)?.name || "—";
@@ -1740,65 +1824,6 @@ function Sales({ db, mutate, notify }) {
       setModal(null);
       setTab("RECEIPT");
     }
-  };
-
-  const isMobilePlatform = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
-
-  const shareToWhatsApp = (doc) => {
-    const customer = db.customers.find((c) => c.id === doc.customer_id);
-    const parts = [
-      `*${DOC_LABELS[doc.type] || doc.type} - ${doc.number}*`,
-      db.settings.company_name ? `From: ${db.settings.company_name}` : null,
-      customer ? `To: ${customer.name}` : null,
-      doc.date ? `Date: ${fmtDate(doc.date)}` : null,
-    ];
-    if (doc.type === "RECEIPT") {
-      parts.push(`Amount Received: NGN ${fmtMoney(doc.amount)}`);
-      if (doc.payment_method) parts.push(`Payment Method: ${doc.payment_method}`);
-      if (doc.invoice_number) parts.push(`Ref. Invoice: ${doc.invoice_number}`);
-      if (doc.balance_after > 0.01) parts.push(`Balance Remaining: NGN ${fmtMoney(doc.balance_after)}`);
-    } else if (doc.total != null) {
-      parts.push(`Total: NGN ${fmtMoney(doc.total)}`);
-      if (doc.type === "INVOICE") parts.push(`Balance Due: NGN ${fmtMoney(doc.total - (doc.amount_paid || 0))}`);
-    }
-    const text = parts.filter(Boolean).join("\n");
-    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    if (window.zeemaxNative && typeof window.zeemaxNative.openExternal === "function") {
-      window.zeemaxNative.openExternal(url);
-    } else {
-      window.open(url, "_blank");
-    }
-  };
-
-  /** Real PDF generation — actually attaches the formatted document, not
-   *  just a text summary. On desktop this saves a .pdf file directly
-   *  (jsPDF's built-in browser download). On mobile — where window.print()
-   *  doesn't work at all, since Android's WebView has no print pipeline —
-   *  this is the ONLY way to get a real copy of the document out of the
-   *  app, so it hands the generated PDF to the native Share sheet instead,
-   *  with WhatsApp, email, Drive, etc. all available as targets for it. */
-  const downloadOrSharePDF = async (doc) => {
-    const node = document.querySelector(".print-doc");
-    if (!node) return;
-    if (isMobilePlatform && typeof window.zeemaxNative?.sharePDF !== "function") {
-      notify("Share as PDF isn't available yet on this build — the app needs updating with the latest native bridge.", "error");
-      return;
-    }
-    setPdfBusy(true);
-    try {
-      const pdf = await generateDocumentPDF(node);
-      const safeNumber = (doc.number || "document").replace(/[^A-Za-z0-9-_]/g, "_");
-      const filename = `${doc.type}-${safeNumber}.pdf`;
-      if (isMobilePlatform) {
-        const base64 = stripDataUriPrefix(pdf.output("datauristring"));
-        await window.zeemaxNative.sharePDF(base64, filename);
-      } else {
-        pdf.save(filename);
-      }
-    } catch (e) {
-      notify("Could not generate the PDF: " + e.message, "error");
-    }
-    setPdfBusy(false);
   };
 
   const saveInvoiceEdit = (invoiceId, meta) => {
@@ -1946,27 +1971,7 @@ function Sales({ db, mutate, notify }) {
       {modal?.kind === "edit-invoice" && <InvoiceEditForm invoice={modal.doc} onClose={() => setModal(null)} onSave={(meta) => saveInvoiceEdit(modal.doc.id, meta)} />}
       {modal?.kind === "pay" && <PaymentForm invoice={modal.doc} onClose={() => setModal(null)} onSave={(amt, date, method) => savePayment(modal.doc.id, amt, date, method)} />}
 
-      {viewDoc && (
-        <div className="modal-overlay doc-viewer-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setViewDoc(null); }}>
-          <div className="modal-box doc-viewer-box" style={{ maxWidth: 780, display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
-            <div className="no-print doc-viewer-toolbar" style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${TOKENS.line}`, flexShrink: 0, flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {!isMobilePlatform && (
-                  <button className="btn btn-primary btn-sm" onClick={() => window.print()}><Printer size={13} /> Print</button>
-                )}
-                <button className="btn btn-primary btn-sm" disabled={pdfBusy} onClick={() => downloadOrSharePDF(viewDoc)}>
-                  <Download size={13} /> {pdfBusy ? "Generating…" : isMobilePlatform ? "Share as PDF" : "Download PDF"}
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => shareToWhatsApp(viewDoc)}><MessageCircle size={13} /> Share via WhatsApp</button>
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setViewDoc(null)}><X size={14} /></button>
-            </div>
-            <div className="doc-viewer-scroll" style={{ overflowY: "auto", flex: 1 }}>
-              <DocumentView db={db} doc={viewDoc} customer={db.customers.find((c) => c.id === viewDoc.customer_id)} />
-            </div>
-          </div>
-        </div>
-      )}
+      {viewDoc && <DocumentViewerModal db={db} doc={viewDoc} onClose={() => setViewDoc(null)} notify={notify} />}
     </div>
   );
 }
@@ -2387,7 +2392,7 @@ export default function ZeemaxBizLedger() {
           <Menu size={18} /> <span style={{ fontWeight: 700, fontSize: 13.5 }}>{companyLabel}</span>
         </button>
         {tab === "dashboard" && <Dashboard db={db} go={setTab} />}
-        {tab === "customers" && <PartyList db={db} mutate={mutate} kind="customers" />}
+        {tab === "customers" && <PartyList db={db} mutate={mutate} kind="customers" notify={notify} />}
         {tab === "sales" && <Sales db={db} mutate={mutate} notify={notify} />}
         {tab === "reports" && <Reports db={db} />}
         {tab === "settings" && <Settings db={db} mutate={mutate} notify={notify} />}
