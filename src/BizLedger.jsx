@@ -587,6 +587,14 @@ function GlobalStyle() {
       .cfe .dashboard-content-grid > *, .cfe .dashboard-kpi-grid > *,
       .cfe .party-kpi-grid > *, .cfe .reports-aging-grid > * { min-width: 0; }
       .cfe .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      /* Recent Documents: fixed height once the list passes ~10 rows,
+         then it scrolls in place instead of growing the dashboard card. */
+      .cfe .recent-docs-scroll { max-height: 400px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C8C4B8 transparent; }
+      .cfe .recent-docs-scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+      .cfe .recent-docs-scroll::-webkit-scrollbar { width: 8px; }
+      .cfe .recent-docs-scroll::-webkit-scrollbar-track { background: transparent; }
+      .cfe .recent-docs-scroll::-webkit-scrollbar-thumb { background: #C8C4B8; border-radius: 6px; }
+      .cfe .recent-docs-scroll::-webkit-scrollbar-thumb:hover { background: #A9A392; }
       .cfe .tab-bar-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
       .cfe .tab-bar-scroll::-webkit-scrollbar { display: none; }
       .cfe .doc-viewer-scroll { scrollbar-width: thin; scrollbar-color: #C8C4B8 transparent; }
@@ -1054,19 +1062,26 @@ function DocumentView({ db, doc, customer }) {
             <StampBox label="PREPARED BY" name={s.company_name}>
               <div>{s.company_name || "[Company Name]"}</div>
             </StampBox>
-            <StampBox label="AUTHORIZED SIGNATORY">
-              {s.signature ? <img src={s.signature} alt="signature and stamp" style={{ maxHeight: 55, maxWidth: 150 }} /> : <div>Name: _______________________<br />Position: _______________________</div>}
-            </StampBox>
+            <div style={{ width: 160, textAlign: "center" }}>
+              <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8 }}>SIGNATURE & STAMP</div>
+              {s.signature ? (
+                <img src={s.signature} alt="signature and stamp" style={{ maxHeight: 60, maxWidth: 150 }} />
+              ) : (
+                <div style={{ width: 130, height: 60, border: "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto" }} />
+              )}
+            </div>
           </>
         )}
-        <div style={{ width: 130, textAlign: "center" }}>
-          <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8 }}>COMPANY STAMP</div>
-          {s.signature ? (
-            <img src={s.signature} alt="stamp" style={{ maxHeight: 60, maxWidth: 120 }} />
-          ) : (
-            <div style={{ width: 100, height: 60, border: "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto" }} />
-          )}
-        </div>
+        {isWaybill && (
+          <div style={{ width: 130, textAlign: "center" }}>
+            <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8 }}>COMPANY STAMP</div>
+            {s.signature ? (
+              <img src={s.signature} alt="stamp" style={{ maxHeight: 60, maxWidth: 120 }} />
+            ) : (
+              <div style={{ width: 100, height: 60, border: "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto" }} />
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ background: themeColor, color: "#fff", textAlign: "center", fontSize: 10.5, fontWeight: 600, padding: "8px 12px", marginTop: 20, borderRadius: 3, letterSpacing: ".02em" }}>
@@ -1105,7 +1120,7 @@ function Dashboard({ db, go }) {
   const invoices = activeDocs.filter((d) => d.type === "INVOICE");
   const outstanding = invoices.reduce((s, d) => s + (d.status !== "Paid" ? (d.total - (d.amount_paid || 0)) : 0), 0);
   const overdue = arAging(db).filter((d) => d.daysOverdue > 0);
-  const recentDocs = [...activeDocs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6);
+  const recentDocs = [...activeDocs].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const hasData = activeCustomers.length > 0 || activeDocs.length > 0;
 
   const kpis = [
@@ -1141,7 +1156,7 @@ function Dashboard({ db, go }) {
           {recentDocs.length === 0 ? (
             <div style={{ color: TOKENS.mute, fontSize: 13 }}>No sales documents yet.</div>
           ) : (
-            <div className="table-scroll">
+            <div className="table-scroll recent-docs-scroll">
             <table>
               <thead><tr><th>Type</th><th>Number</th><th>Date</th><th>Total</th><th>Status</th></tr></thead>
               <tbody>
