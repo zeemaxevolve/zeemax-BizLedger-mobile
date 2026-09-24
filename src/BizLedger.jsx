@@ -587,8 +587,9 @@ function GlobalStyle() {
       .cfe .dashboard-content-grid > *, .cfe .dashboard-kpi-grid > *,
       .cfe .party-kpi-grid > *, .cfe .reports-aging-grid > * { min-width: 0; }
       .cfe .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-      /* Recent Documents: show up to 10 rows, then scroll in place. */
-      .cfe .recent-docs-scroll { max-height: 397px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C8C4B8 transparent; }
+      /* Recent Documents: fixed height once the list passes ~10 rows,
+         then it scrolls in place instead of growing the dashboard card. */
+      .cfe .recent-docs-scroll { max-height: 400px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C8C4B8 transparent; }
       .cfe .recent-docs-scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
       .cfe .recent-docs-scroll::-webkit-scrollbar { width: 8px; }
       .cfe .recent-docs-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -1049,7 +1050,7 @@ function DocumentView({ db, doc, customer }) {
         </div>
       )}
 
-      {/* ===== BOTTOM: combined prepared-by/signature/stamp or waybill receiving blocks ===== */}
+      {/* ===== BOTTOM: PREPARED BY / SIGNATORY / STAMP or RECEIVED BY / DISPATCHED BY / STAMP ===== */}
       <div style={{ display: "flex", gap: 20, marginTop: 24, paddingTop: 14, borderTop: `1px solid ${TOKENS.line}` }}>
         {isWaybill ? (
           <>
@@ -1057,17 +1058,19 @@ function DocumentView({ db, doc, customer }) {
             <StampBox label="DISPATCHED BY" />
           </>
         ) : (
-          <div style={{ width: 220, marginLeft: "auto", textAlign: "center", fontSize: 11 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>PREPARED BY / SIGNATURE & STAMP</div>
-            <div style={{ marginBottom: 8, fontWeight: 600 }}>{s.company_name || "[Company Name]"}</div>
-            <div style={{ width: 180, height: 70, border: s.signature ? "none" : "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <>
+            <StampBox label="PREPARED BY" name={s.company_name}>
+              <div>{s.company_name || "[Company Name]"}</div>
+            </StampBox>
+            <div style={{ width: 160, textAlign: "center" }}>
+              <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8 }}>SIGNATURE & STAMP</div>
               {s.signature ? (
-                <img src={s.signature} alt="signature and stamp" style={{ maxHeight: "100%", maxWidth: "100%" }} />
+                <img src={s.signature} alt="signature and stamp" style={{ maxHeight: 60, maxWidth: 150 }} />
               ) : (
-                <span style={{ color: TOKENS.mute, fontSize: 10 }}>Signature & Stamp</span>
+                <div style={{ width: 130, height: 60, border: "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto" }} />
               )}
             </div>
-          </div>
+          </>
         )}
         {isWaybill && (
           <div style={{ width: 130, textAlign: "center" }}>
