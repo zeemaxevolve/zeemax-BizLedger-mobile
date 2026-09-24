@@ -2054,11 +2054,21 @@ function Settings({ db, mutate, notify }) {
     if (ok) notify("Company profile saved.");
   };
 
+  const saveImageSetting = (field, value) => {
+    const label = field === "signature" ? "Signature & stamp" : "Company logo";
+    const ok = mutate((db) => { db.settings = { ...db.settings, [field]: value }; });
+    if (ok) notify(value ? `${label} uploaded.` : `${label} removed.`);
+  };
+
   const onImageUpload = (field) => (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setF((prev) => ({ ...prev, [field]: reader.result }));
+    reader.onload = () => {
+      setF((prev) => ({ ...prev, [field]: reader.result }));
+      saveImageSetting(field, reader.result);
+      e.target.value = "";
+    };
     reader.readAsDataURL(file);
   };
 
@@ -2164,7 +2174,7 @@ function Settings({ db, mutate, notify }) {
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => logoRef.current.click()}>Upload</button>
               <input ref={logoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onImageUpload("logo")} />
-              {f.logo && <button className="btn btn-danger btn-sm" onClick={() => setF({ ...f, logo: null })}>Remove</button>}
+              {f.logo && <button className="btn btn-danger btn-sm" onClick={() => { setF({ ...f, logo: null }); saveImageSetting("logo", null); }}>Remove</button>}
             </div>
           </Field>
           <Field label="Signature & Stamp">
@@ -2174,7 +2184,7 @@ function Settings({ db, mutate, notify }) {
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => signatureRef.current.click()}>Upload</button>
               <input ref={signatureRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onImageUpload("signature")} />
-              {f.signature && <button className="btn btn-danger btn-sm" onClick={() => setF({ ...f, signature: null })}>Remove</button>}
+              {f.signature && <button className="btn btn-danger btn-sm" onClick={() => { setF({ ...f, signature: null }); saveImageSetting("signature", null); }}>Remove</button>}
             </div>
           </Field>
         </div>
