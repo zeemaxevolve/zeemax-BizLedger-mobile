@@ -589,8 +589,10 @@ function GlobalStyle() {
       .cfe .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       /* Recent Documents: fixed height once the list passes ~10 rows,
          then it scrolls in place instead of growing the dashboard card. */
-      .cfe .recent-docs-scroll { max-height: 400px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C8C4B8 transparent; }
-      .cfe .recent-docs-scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+      /* Exactly 10 rows visible, then scroll: header 36px + 10 rows x 46px + 4px buffer. */
+      .cfe .recent-docs-scroll { max-height: 500px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C8C4B8 transparent; }
+      .cfe .recent-docs-scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; height: 36px; box-sizing: border-box; }
+      .cfe .recent-docs-scroll tbody tr { height: 46px; }
       .cfe .recent-docs-scroll::-webkit-scrollbar { width: 8px; }
       .cfe .recent-docs-scroll::-webkit-scrollbar-track { background: transparent; }
       .cfe .recent-docs-scroll::-webkit-scrollbar-thumb { background: #C8C4B8; border-radius: 6px; }
@@ -1055,7 +1057,14 @@ function DocumentView({ db, doc, customer }) {
         {isWaybill ? (
           <>
             <StampBox label="RECEIVED BY (CONSIGNEE)" />
-            <StampBox label="DISPATCHED BY" />
+            <div style={{ width: 160, textAlign: "center" }}>
+              <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8 }}>DISPATCHED BY</div>
+              {s.signature ? (
+                <img src={s.signature} alt="signature and stamp" style={{ maxHeight: 60, maxWidth: 150 }} />
+              ) : (
+                <div style={{ width: 130, height: 60, border: "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto" }} />
+              )}
+            </div>
           </>
         ) : (
           <>
@@ -1071,16 +1080,6 @@ function DocumentView({ db, doc, customer }) {
               )}
             </div>
           </>
-        )}
-        {isWaybill && (
-          <div style={{ width: 130, textAlign: "center" }}>
-            <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 8 }}>COMPANY STAMP</div>
-            {s.signature ? (
-              <img src={s.signature} alt="stamp" style={{ maxHeight: 60, maxWidth: 120 }} />
-            ) : (
-              <div style={{ width: 100, height: 60, border: "1.5px dashed #C8C4B8", borderRadius: 4, margin: "0 auto" }} />
-            )}
-          </div>
         )}
       </div>
 
@@ -1234,16 +1233,9 @@ function PartyForm({ title, initial, onSave, onClose, showCredit }) {
   );
 }
 
-/** The document viewer modal (Print / Download PDF / Share via WhatsApp,
- *  plus the printed document itself) — pulled out as its own component so
- *  it can be opened from anywhere a document is listed, not just the Sales
- *  Documents page. Customer Transaction History uses this same component,
- *  so a document looks and behaves identically wherever it's opened from. */
-function DocumentViewerModal({ db, doc, onClose, notify }) {
-  const [pdfBusy, setPdfBusy] = useState(false);
-  const isMobilePlatform = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
-
-  const shareToWhatsApp = () => {
+/** Opens WhatsApp with a text summary of a document. Standalone so any list
+ *  row can share directly, without first opening the full document viewer. */
+function shareDocToWhatsApp(db, doc) {
     const customer = db.customers.find((c) => c.id === doc.customer_id);
     const parts = [
       `*${DOC_LABELS[doc.type] || doc.type} - ${doc.number}*`,
@@ -1267,7 +1259,18 @@ function DocumentViewerModal({ db, doc, onClose, notify }) {
     } else {
       window.open(url, "_blank");
     }
-  };
+}
+
+/** The document viewer modal (Print / Download PDF / Share via WhatsApp,
+ *  plus the printed document itself) — pulled out as its own component so
+ *  it can be opened from anywhere a document is listed, not just the Sales
+ *  Documents page. Customer Transaction History uses this same component,
+ *  so a document looks and behaves identically wherever it's opened from. */
+function DocumentViewerModal({ db, doc, onClose, notify, autoAction }) {
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const isMobilePlatform = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
+
+  const shareToWhatsApp = () => shareDocToWhatsApp(db, doc);
 
   const downloadOrSharePDF = async () => {
     const node = document.querySelector(".print-doc");
@@ -1292,6 +1295,20 @@ function DocumentViewerModal({ db, doc, onClose, notify }) {
     }
     setPdfBusy(false);
   };
+
+  // Per-row Print / PDF buttons open the viewer and trigger the action for
+  // the person, once the document (and its logo/signature images) has
+  // had a moment to lay out — printing or capturing too early would grab a
+  // half-rendered page.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (!autoAction || autoRan.current) return;
+    autoRan.current = true;
+    setTimeout(() => {
+      if (autoAction === "print") window.print();
+      else if (autoAction === "pdf") downloadOrSharePDF();
+    }, 600);
+  }, []); // eslint-disable-line
 
   return (
     <div className="modal-overlay doc-viewer-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -1319,12 +1336,15 @@ function DocumentViewerModal({ db, doc, onClose, notify }) {
 function PartyDetail({ db, party, onClose, notify }) {
   const width = useWindowWidth();
   const kpiCols = width <= 480 ? 1 : width <= 900 ? 2 : 4;
-  const [viewDoc, setViewDoc] = useState(null);
-  const docs = db.documents
+  const [viewReq, setViewReq] = useState(null);
+  const [dateFilter, setDateFilter] = useState("");
+  const isAndroid = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
+  const allDocs = db.documents
     .filter((d) => !d._deleted && d.customer_id === party.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const docs = dateFilter ? allDocs.filter((d) => d.date === dateFilter) : allDocs;
 
-  const invoices = docs.filter((d) => d.type === "INVOICE");
+  const invoices = allDocs.filter((d) => d.type === "INVOICE");
   const totalInvoiced = invoices.reduce((s, d) => s + (d.total || 0), 0);
   const totalPaid = invoices.reduce((s, d) => s + (d.amount_paid || 0), 0);
   const outstanding = totalInvoiced - totalPaid;
@@ -1340,7 +1360,7 @@ function PartyDetail({ db, party, onClose, notify }) {
       <div className="party-kpi-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${kpiCols}, 1fr)`, gap: 10, margin: "14px 0" }}>
         <div className="card kpi" style={{ padding: 12 }}>
           <div style={{ fontSize: 11, color: TOKENS.mute, fontWeight: 600 }}>Proforma Invoices</div>
-          <div className="val" style={{ fontSize: 18 }}>{docs.filter((d) => d.type === "PROFORMA").length}</div>
+          <div className="val" style={{ fontSize: 18 }}>{allDocs.filter((d) => d.type === "PROFORMA").length}</div>
         </div>
         <div className="card kpi" style={{ padding: 12 }}>
           <div style={{ fontSize: 11, color: TOKENS.mute, fontWeight: 600 }}>Total Invoiced</div>
@@ -1356,11 +1376,20 @@ function PartyDetail({ db, party, onClose, notify }) {
         </div>
       </div>
 
-      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>All Transactions</div>
-      {docs.length === 0 ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>All Transactions</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ fontSize: 12, color: TOKENS.mute }}>Search by date:</label>
+          <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} style={{ fontSize: 12, padding: "4px 6px" }} />
+          {dateFilter && <button className="btn btn-ghost btn-sm" onClick={() => setDateFilter("")}>Clear</button>}
+        </div>
+      </div>
+      {allDocs.length === 0 ? (
         <div style={{ color: TOKENS.mute, fontSize: 13 }}>No Proforma Invoices, Invoices, Waybills, or Receipts recorded for {party.name} yet.</div>
+      ) : docs.length === 0 ? (
+        <div style={{ color: TOKENS.mute, fontSize: 13 }}>No transactions on {fmtDate(dateFilter)}.</div>
       ) : (
-        <div className="table-scroll">
+        <div className="table-scroll recent-docs-scroll">
         <table>
           <thead><tr><th>Type</th><th>Number</th><th>Date</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -1371,14 +1400,22 @@ function PartyDetail({ db, party, onClose, notify }) {
                 <td>{fmtDate(d.date)}</td>
                 <td className="mono" style={{ textAlign: "right" }}>{d.total != null ? `NGN ${fmtMoney(d.total)}` : "—"}</td>
                 <td><Badge tone={statusTone(d.status)}>{d.status}</Badge></td>
-                <td><button className="btn btn-ghost btn-sm" onClick={() => setViewDoc(d)}><Printer size={13} /> View</button></td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setViewReq({ doc: d })}><FileText size={13} /> View</button>{" "}
+                  {isAndroid ? (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setViewReq({ doc: d, action: "pdf" })}><Download size={13} /> PDF</button>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setViewReq({ doc: d, action: "print" })}><Printer size={13} /> Print</button>
+                  )}{" "}
+                  <button className="btn btn-ghost btn-sm" onClick={() => shareDocToWhatsApp(db, d)}><MessageCircle size={13} /> Share</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
         </div>
       )}
-      {viewDoc && <DocumentViewerModal db={db} doc={viewDoc} onClose={() => setViewDoc(null)} notify={notify} />}
+      {viewReq && <DocumentViewerModal db={db} doc={viewReq.doc} autoAction={viewReq.action} onClose={() => setViewReq(null)} notify={notify} />}
     </Modal>
   );
 }
@@ -2054,21 +2091,11 @@ function Settings({ db, mutate, notify }) {
     if (ok) notify("Company profile saved.");
   };
 
-  const saveImageSetting = (field, value) => {
-    const label = field === "signature" ? "Signature & stamp" : "Company logo";
-    const ok = mutate((db) => { db.settings = { ...db.settings, [field]: value }; });
-    if (ok) notify(value ? `${label} uploaded.` : `${label} removed.`);
-  };
-
   const onImageUpload = (field) => (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      setF((prev) => ({ ...prev, [field]: reader.result }));
-      saveImageSetting(field, reader.result);
-      e.target.value = "";
-    };
+    reader.onload = () => setF((prev) => ({ ...prev, [field]: reader.result }));
     reader.readAsDataURL(file);
   };
 
@@ -2174,7 +2201,7 @@ function Settings({ db, mutate, notify }) {
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => logoRef.current.click()}>Upload</button>
               <input ref={logoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onImageUpload("logo")} />
-              {f.logo && <button className="btn btn-danger btn-sm" onClick={() => { setF({ ...f, logo: null }); saveImageSetting("logo", null); }}>Remove</button>}
+              {f.logo && <button className="btn btn-danger btn-sm" onClick={() => setF({ ...f, logo: null })}>Remove</button>}
             </div>
           </Field>
           <Field label="Signature & Stamp">
@@ -2184,12 +2211,12 @@ function Settings({ db, mutate, notify }) {
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => signatureRef.current.click()}>Upload</button>
               <input ref={signatureRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onImageUpload("signature")} />
-              {f.signature && <button className="btn btn-danger btn-sm" onClick={() => { setF({ ...f, signature: null }); saveImageSetting("signature", null); }}>Remove</button>}
+              {f.signature && <button className="btn btn-danger btn-sm" onClick={() => setF({ ...f, signature: null })}>Remove</button>}
             </div>
           </Field>
         </div>
         <div style={{ fontSize: 11.5, color: TOKENS.mute, marginBottom: 14 }}>
-          Tip: scan or photograph your company stamp with a signature over it on plain paper, crop it tight, and upload as one image — it will appear automatically at the bottom of every Proforma Invoice, Invoice, and Receipt.
+          Tip: scan or photograph your company stamp with a signature over it on plain paper, crop it tight, and upload as one image — it will appear automatically at the bottom of every Proforma Invoice, Invoice, Waybill, and Receipt.
         </div>
         <div className="form-grid-2">
           <Field label="Company Name"><input type="text" value={f.company_name} onChange={set("company_name")} placeholder="[Company Name]" /></Field>
