@@ -7,7 +7,7 @@ import {
   AlertTriangle, Search, Trash2, Pencil, ArrowRight, CheckCircle2,
   ChevronRight, Beaker, Receipt, ClipboardList, Wallet, TrendingUp,
   TrendingDown, BookOpen, Landmark, PackageCheck, Droplets, ShieldAlert,
-  Phone, Mail, MapPin, Globe, FlaskConical, MessageCircle, Menu, Download, Check,
+  Phone, Mail, MapPin, Globe, FlaskConical, MessageCircle, Menu, Download, Check, Image as ImageIcon,
 } from "lucide-react";
 
 /* ============================================================
@@ -195,7 +195,7 @@ function addDays(iso, days) {
  *  page. Returns the jsPDF instance so the caller decides what to do
  *  with it (save directly on desktop, or turn into base64 for a native
  *  mobile share sheet). */
-async function generateDocumentPDF(node) {
+async function renderDocumentCanvas(node) {
   const PDF_RENDER_WIDTH = 780; // matches the desktop document viewer's width
   const clone = node.cloneNode(true);
   clone.querySelectorAll(".table-scroll").forEach((el) => {
@@ -218,7 +218,13 @@ async function generateDocumentPDF(node) {
     document.body.removeChild(offscreen);
   }
 
-  const imgData = canvas.toDataURL("image/png");
+  return canvas;
+}
+
+function pdfFromCanvas(canvas, format = "png") {
+  const jpeg = format === "jpeg"; // "JPEG-style" PDF: the page picture stored as a photo, the way scanner apps do
+  const imgKind = jpeg ? "JPEG" : "PNG";
+  const imgData = jpeg ? canvas.toDataURL("image/jpeg", 0.95) : canvas.toDataURL("image/png");
   // Compression is what keeps these files small. Without it jsPDF writes the
   // page image as raw, uncompressed pixels — one invoice came out at ~9 MB and
   // a multi-page one at 12–15 MB, slow to send and heavy for WhatsApp to open
@@ -233,15 +239,36 @@ async function generateDocumentPDF(node) {
   const imgHeight = (canvas.height * imgWidth) / canvas.width;
   let heightLeft = imgHeight;
   let position = 0;
-  pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
+  pdf.addImage(imgData, imgKind, 0, position, imgWidth, imgHeight, undefined, "FAST");
   heightLeft -= pageHeight;
   while (heightLeft > 0) {
     position = heightLeft - imgHeight;
     pdf.addPage();
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
+    pdf.addImage(imgData, imgKind, 0, position, imgWidth, imgHeight, undefined, "FAST");
     heightLeft -= pageHeight;
   }
   return pdf;
+}
+
+async function generateDocumentPDF(node) {
+  return pdfFromCanvas(await renderDocumentCanvas(node));
+}
+
+/** A JPEG (raw base64) of just page 1 of the document — the same slice the
+ *  PDF's first page shows. Shared alongside the PDF so the chat always has a
+ *  visible picture of the document, whatever the receiving app does or does
+ *  not manage to preview for a PDF on its own. */
+function previewImageFromCanvas(canvas) {
+  const pageH = Math.round((canvas.width * 841.89) / 595.28); // A4 proportions, as in pdfFromCanvas
+  const h = Math.min(canvas.height, pageH);
+  const c = document.createElement("canvas");
+  c.width = canvas.width;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, c.width, h);
+  ctx.drawImage(canvas, 0, 0, canvas.width, h, 0, 0, canvas.width, h);
+  return stripDataUriPrefix(c.toDataURL("image/jpeg", 0.92));
 }
 
 /** data:application/pdf;base64,XXXX -> just "XXXX" — Capacitor's
@@ -1275,6 +1302,8 @@ function shareDocToWhatsApp(db, doc) {
  *  so a document looks and behaves identically wherever it's opened from. */
 function DocumentViewerModal({ db, doc, onClose, notify, autoAction }) {
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [showTest, setShowTest] = useState(false);
+  const canvasCache = useRef(null);
   const isMobilePlatform = typeof window !== "undefined" && window.zeemaxNative?.platform === "android";
 
   const shareToWhatsApp = () => shareDocToWhatsApp(db, doc);
@@ -1298,10 +1327,60 @@ function DocumentViewerModal({ db, doc, onClose, notify, autoAction }) {
         pdf.save(filename);
       }
     } catch (e) {
-      notify("Could not generate the PDF: " + e.message, "error");
+      // Closing the share sheet without sending is a choice, not a failure.
+      if (!/cancel/i.test(String((e && e.message) || ""))) notify("Could not generate the PDF: " + e.message, "error");
     }
     setPdfBusy(false);
   };
+
+  const canShareWithPreview = isMobilePlatform && typeof window.zeemaxNative?.sharePDFWithPreview === "function";
+  const shareWithPreview = async () => {
+    const node = document.querySelector(".print-doc");
+    if (!node) return;
+    setPdfBusy(true);
+    try {
+      const canvas = await renderDocumentCanvas(node);
+      const pdf = pdfFromCanvas(canvas);
+      const base = `${doc.type}-${(doc.number || "document").replace(/[^A-Za-z0-9-_]/g, "_")}`;
+      await window.zeemaxNative.sharePDFWithPreview(
+        stripDataUriPrefix(pdf.output("datauristring")), `${base}.pdf`,
+        previewImageFromCanvas(canvas), `${base}-preview.jpg`
+      );
+    } catch (e) {
+      if (!/cancel/i.test(String((e && e.message) || ""))) notify("Could not share the document: " + e.message, "error");
+    }
+    setPdfBusy(false);
+  };
+
+  // TEMPORARY — "Sharing test": five ways of handing the same document to WhatsApp,
+  // each differing from the standard method in one way, to find out which one makes
+  // WhatsApp draw a page preview on this phone. Removed once the answer is known.
+  const canTestSharing = canShareWithPreview && typeof window.zeemaxNative?.shareFile === "function";
+  const runShareTest = async (n) => {
+    setPdfBusy(true);
+    try {
+      if (!canvasCache.current) canvasCache.current = await renderDocumentCanvas(document.querySelector(".print-doc"));
+      const canvas = canvasCache.current;
+      const zn = window.zeemaxNative;
+      const b64 = (pdf) => stripDataUriPrefix(pdf.output("datauristring"));
+      const base = `${doc.type}-${(doc.number || "document").replace(/[^A-Za-z0-9-_]/g, "_")}`;
+      if (n === 1) await zn.sharePDF(b64(pdfFromCanvas(canvas)), `${base}.pdf`);
+      else if (n === 2) await zn.shareFile({ base64: b64(pdfFromCanvas(canvas, "jpeg")), fileName: `${base}.pdf` });
+      else if (n === 3) await zn.shareFile({ base64: b64(pdfFromCanvas(canvas)), fileName: `${base}.pdf`, location: "external" });
+      else if (n === 4) await zn.sharePDFWithPreview(b64(pdfFromCanvas(canvas)), `${base}.pdf`, previewImageFromCanvas(canvas), `${base}-preview.jpg`);
+      else if (n === 5) await zn.shareFile({ base64: b64(pdfFromCanvas(canvas)), fileName: `${base}.pdf`, withTitle: false });
+    } catch (e) {
+      if (!/cancel/i.test(String((e && e.message) || ""))) notify(`Sharing test ${n} failed: ` + e.message, "error");
+    }
+    setPdfBusy(false);
+  };
+  const TEST_OPTIONS = [
+    [1, "Current method", "How Share as PDF works today"],
+    [2, "JPEG-style PDF", "Page stored as a photo, like a scanner app"],
+    [3, "From app storage", "Same PDF, saved in a different folder first"],
+    [4, "PDF + picture", "Two files in one share"],
+    [5, "Without title", "Same as 1, minus the file-name 'subject' line"],
+  ];
 
   // Per-row Print / PDF buttons open the viewer and trigger the action for
   // the person, once the document (and its logo/signature images) has
@@ -1328,10 +1407,33 @@ function DocumentViewerModal({ db, doc, onClose, notify, autoAction }) {
             <button className="btn btn-primary btn-sm" disabled={pdfBusy} onClick={downloadOrSharePDF}>
               <Download size={13} /> {pdfBusy ? "Generating…" : isMobilePlatform ? "Share as PDF" : "Download PDF"}
             </button>
+            {canShareWithPreview && (
+              <button className="btn btn-primary btn-sm" disabled={pdfBusy} onClick={shareWithPreview}>
+                <ImageIcon size={13} /> Share with Preview
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={shareToWhatsApp}><MessageCircle size={13} /> Share via WhatsApp</button>
+            {canTestSharing && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowTest((v) => !v)}>Sharing test</button>
+            )}
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onClose}><X size={14} /></button>
         </div>
+        {canTestSharing && showTest && (
+          <div className="no-print" style={{ padding: "10px 16px", borderBottom: `1px solid ${TOKENS.line}`, background: "#FFF9E8", flexShrink: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 4 }}>Sharing test (temporary)</div>
+            <div style={{ fontSize: 12, color: TOKENS.mute, marginBottom: 8, lineHeight: 1.45 }}>
+              Tap a button, choose WhatsApp and a contact, then look at WhatsApp's send screen — <b>don't send</b>. Note which ones show a picture of the page. Press back and try the next.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {TEST_OPTIONS.map(([n, label, hint]) => (
+                <button key={n} className="btn btn-ghost btn-sm" disabled={pdfBusy} onClick={() => runShareTest(n)} style={{ justifyContent: "flex-start", textAlign: "left" }}>
+                  <b>{n}</b>&nbsp;·&nbsp;{label}&nbsp;<span style={{ color: TOKENS.mute, fontWeight: 400 }}>— {hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="doc-viewer-scroll" style={{ overflowY: "auto", flex: 1 }}>
           <DocumentView db={db} doc={doc} customer={db.customers.find((c) => c.id === doc.customer_id)} />
         </div>
