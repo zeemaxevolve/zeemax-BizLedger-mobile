@@ -126,15 +126,51 @@ export function installMobileNativeBridge() {
     async sharePDF(base64Data, fileName) {
       await Filesystem.writeFile({ path: fileName, directory: Directory.Cache, data: base64Data });
       const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
+      // A plain file share, with no `text`. Capacitor packs the file and any
+      // text into one intent; WhatsApp showed no caption from it anyway, and a
+      // lone PDF is the simplest, most standard thing to hand to the share sheet.
       await Share.share({
         title: fileName,
-        text: `${fileName.replace(/\.pdf$/i, "")} — from Zeemax Biz Ledger`,
         url: uri,
         dialogTitle: "Share this document",
       });
       return { canceled: false, filePath: fileName };
     },
 
+    /** Shares one file, with two knobs used by the temporary Sharing test: which
+     *  folder the file is saved in first, and whether the file name is also sent
+     *  as the share's "subject". */
+    async shareFile({ base64, fileName, location = "cache", withTitle = true }) {
+      const directory = location === "external" ? Directory.External : Directory.Cache;
+      await Filesystem.writeFile({ path: fileName, directory, data: base64 });
+      const { uri } = await Filesystem.getUri({ path: fileName, directory });
+      const options = { url: uri, dialogTitle: "Share this document" };
+      if (withTitle) options.title = fileName;
+      await Share.share(options);
+      return { canceled: false, filePath: fileName, uri };
+    },
+
+    /** One share sheet, two files: a picture of page 1 and the PDF itself.
+     *  WhatsApp always shows a picture, so the chat has a visible preview of
+     *  the document even when it can't draw a preview of the PDF on its own.
+     *  If this phone's share sheet turns the two-file share down, it falls
+     *  back to sharing just the PDF — never worse than a plain PDF share. */
+    async sharePDFWithPreview(pdfBase64, pdfName, imageBase64, imageName) {
+      await Filesystem.writeFile({ path: pdfName, directory: Directory.Cache, data: pdfBase64 });
+      const { uri: pdfUri } = await Filesystem.getUri({ path: pdfName, directory: Directory.Cache });
+      try {
+        await Filesystem.writeFile({ path: imageName, directory: Directory.Cache, data: imageBase64 });
+        const { uri: imageUri } = await Filesystem.getUri({ path: imageName, directory: Directory.Cache });
+        await Share.share({ title: pdfName, files: [imageUri, pdfUri], dialogTitle: "Share this document" });
+        return { canceled: false, filePath: pdfName, withPreview: true };
+      } catch (err) {
+        if (/cancel/i.test(String((err && err.message) || ""))) return { canceled: true };
+        await Share.share({ title: pdfName, url: pdfUri, dialogTitle: "Share this document" });
+        return { canceled: false, filePath: pdfName, withPreview: false };
+      }
+    },
+
     platform: "android",
+    bridgeBuild: "2026-10-24-c", // must match APP_BUILD in BizLedger.jsx — Settings compares the two
   };
 }
