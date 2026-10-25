@@ -137,40 +137,20 @@ export function installMobileNativeBridge() {
       return { canceled: false, filePath: fileName };
     },
 
-    /** Shares one file, with two knobs used by the temporary Sharing test: which
-     *  folder the file is saved in first, and whether the file name is also sent
-     *  as the share's "subject". */
-    async shareFile({ base64, fileName, location = "cache", withTitle = true }) {
-      const directory = location === "external" ? Directory.External : Directory.Cache;
-      await Filesystem.writeFile({ path: fileName, directory, data: base64 });
-      const { uri } = await Filesystem.getUri({ path: fileName, directory });
-      const options = { url: uri, dialogTitle: "Share this document" };
-      if (withTitle) options.title = fileName;
-      await Share.share(options);
-      return { canceled: false, filePath: fileName, uri };
-    },
-
-    /** One share sheet, two files: a picture of page 1 and the PDF itself.
-     *  WhatsApp always shows a picture, so the chat has a visible preview of
-     *  the document even when it can't draw a preview of the PDF on its own.
-     *  If this phone's share sheet turns the two-file share down, it falls
-     *  back to sharing just the PDF — never worse than a plain PDF share. */
-    async sharePDFWithPreview(pdfBase64, pdfName, imageBase64, imageName) {
-      await Filesystem.writeFile({ path: pdfName, directory: Directory.Cache, data: pdfBase64 });
-      const { uri: pdfUri } = await Filesystem.getUri({ path: pdfName, directory: Directory.Cache });
-      try {
-        await Filesystem.writeFile({ path: imageName, directory: Directory.Cache, data: imageBase64 });
-        const { uri: imageUri } = await Filesystem.getUri({ path: imageName, directory: Directory.Cache });
-        await Share.share({ title: pdfName, files: [imageUri, pdfUri], dialogTitle: "Share this document" });
-        return { canceled: false, filePath: pdfName, withPreview: true };
-      } catch (err) {
-        if (/cancel/i.test(String((err && err.message) || ""))) return { canceled: true };
-        await Share.share({ title: pdfName, url: pdfUri, dialogTitle: "Share this document" });
-        return { canceled: false, filePath: pdfName, withPreview: false };
+    /** Shares one or more pictures in a single share sheet — one per page of
+     *  the document. WhatsApp always draws a preview of a picture. */
+    async shareImages(images) {
+      const uris = [];
+      for (const img of images) {
+        await Filesystem.writeFile({ path: img.fileName, directory: Directory.Cache, data: img.base64 });
+        const { uri } = await Filesystem.getUri({ path: img.fileName, directory: Directory.Cache });
+        uris.push(uri);
       }
+      await Share.share({ title: images[0].fileName, files: uris, dialogTitle: "Share this document" });
+      return { canceled: false, count: uris.length };
     },
 
     platform: "android",
-    bridgeBuild: "2026-10-24-c", // must match APP_BUILD in BizLedger.jsx — Settings compares the two
+    bridgeBuild: "2026-10-25-a", // must match APP_BUILD in BizLedger.jsx — Settings compares the two
   };
 }
